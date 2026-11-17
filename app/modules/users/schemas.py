@@ -7,6 +7,7 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    HttpUrl,
     SecretStr,
     StringConstraints,
     model_validator,
@@ -55,6 +56,8 @@ class UserUpdate(BaseModel):
 
     name: PersonalName | None = None
     last_name: PersonalName | None = None
+    doc_number: str | None = Field(default=None, pattern=r"^[0-9]{8}$")
+    avatar_url: HttpUrl | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def validate_changes(self):
@@ -62,7 +65,7 @@ class UserUpdate(BaseModel):
             raise ValueError("Envía al menos un campo para actualizar.")
 
         for field in self.model_fields_set:
-            if getattr(self, field) is None:
+            if field != "avatar_url" and getattr(self, field) is None:
                 raise ValueError(f"El campo {field} no acepta null.")
 
         return self
@@ -92,6 +95,8 @@ class UserRead(BaseModel):
     username: str
     name: str
     last_name: str
+    doc_number: str | None
+    avatar_url: str | None
     is_active: bool
     is_admin: bool
     profile_id: UUID
@@ -106,6 +111,8 @@ class UserSimpleRead(BaseModel):
     username: str
     name: str
     last_name: str
+    doc_number: str | None
+    avatar_url: str | None
     is_active: bool
     is_admin: bool
 

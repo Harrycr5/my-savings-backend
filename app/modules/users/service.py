@@ -70,7 +70,7 @@ class UserService:
         user: User,
         data: UserUpdate,
     ) -> User:
-        changes = data.model_dump(exclude_unset=True)
+        changes = data.model_dump(exclude_unset=True, mode="json")
 
         try:
             user = await self.users.update_personal_data(
@@ -79,6 +79,11 @@ class UserService:
             )
             await self.session.commit()
 
+        except IntegrityError as exc:
+            await self.session.rollback()
+            if "uq_users_doc_number" in str(exc.orig) or "users.doc_number" in str(exc.orig):
+                raise UserAlreadyExistsError("El documento ya está registrado.") from exc
+            raise
         except Exception:
             await self.session.rollback()
             raise

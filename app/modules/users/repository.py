@@ -96,9 +96,9 @@ class UserRepository:
     async def update_personal_data(
         self,
         user: User,
-        changes: dict[str, str],
+        changes: dict[str, str | None],
     ) -> User:
-        allowed_fields = {"name", "last_name"}
+        allowed_fields = {"name", "last_name", "doc_number", "avatar_url"}
 
         if not changes.keys() <= allowed_fields:
             raise ValueError("Campos de actualización no permitidos.")

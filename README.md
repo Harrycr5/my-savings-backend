@@ -25,7 +25,7 @@ Edita `.env`:
 En pgAdmin, crea la base indicada en `DATABASE_URL`. Por ejemplo:
 
 ```sql
-CREATE DATABASE fastapi_starter;
+CREATE DATABASE my_savings;
 ```
 
 PostgreSQL debe estar encendido. Alembic crea las tablas, no la base de datos.

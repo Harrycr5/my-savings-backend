@@ -18,9 +18,13 @@ async def test_permission_catalog_is_idempotent_and_excludes_sessions(db):
     await connection.run_sync(sync_model_permissions)
     await db.commit()
     after = await db.scalar(select(func.count()).select_from(Permission))
-    assert before == after == 9
+    assert before == after == 33
     codes = list((await db.scalars(select(Permission.code))).all())
     assert not any(code.startswith("auth_sessions.") for code in codes)
+    for resource in (
+        "tills", "till_concepts", "till_movements", "debts", "debt_payments", "inheritance_assets"
+    ):
+        assert {f"{resource}.{action}" for action in ("read", "create", "update", "delete")} <= set(codes)
 
 
 async def test_add_preserves_existing_and_ignores_duplicates(client, admin_headers, seeded):
