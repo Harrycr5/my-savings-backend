@@ -17,8 +17,9 @@ def test_migration_chain_and_postgresql_sql():
     output = StringIO()
     config = Config("alembic.ini", output_buffer=output)
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "a7d92c5e1048"
+    assert scripts.get_current_head() == "c6e7d9b812f0"
     assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "c6e7d9b812f0",
         "a7d92c5e1048",
         "f4c839a2b671",
         "e3b426c8ad51",
@@ -46,6 +47,44 @@ def test_migration_chain_and_postgresql_sql():
         assert f"CREATE TABLE {table}" in sql
     assert "UNIQUE (debt_id, due_date)" in sql
     assert "FOREIGN KEY(concept_id, till_id, direction)" in sql
+    assert "INSERT INTO profile_permissions" in sql
+    assert "profiles.code = 'user'" in sql
+
+
+def test_basic_profile_grants_only_personal_permissions():
+    migration = import_module("migrations.versions.c6e7d9b812f0_seed_basic_profile_permissions")
+    load_models()
+    profiles = Base.metadata.tables["profiles"]
+    permissions = Base.metadata.tables["permissions"]
+    grants = Base.metadata.tables["profile_permissions"]
+
+    with sa.create_engine("sqlite://").begin() as connection:
+        Base.metadata.create_all(connection, tables=[profiles, permissions, grants])
+        connection.execute(
+            profiles.insert(),
+            [{"code": code, "name": code} for code in ("user", "superadmin", "custom")],
+        )
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+            migration.upgrade()
+
+        rows = connection.execute(
+            sa.select(profiles.c.code, permissions.c.code).select_from(
+                profiles.join(grants).join(permissions)
+            )
+        ).all()
+        assert {profile for profile, _ in rows} == {"user"}
+        codes = {code for _, code in rows}
+        assert {code for code in codes if code.startswith("users.")} == {"users.me"}
+        assert {code.split(".")[0] for code in codes} == {
+            "tills",
+            "till_concepts",
+            "till_movements",
+            "debts",
+            "debt_payments",
+            "inheritance_assets",
+            "users",
+        }
 
 
 def test_finance_migration_matches_models_and_reverses():

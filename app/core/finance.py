@@ -1,5 +1,3 @@
-"""Shared validation and persistence for user-owned financial records."""
-
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Generic, TypeVar

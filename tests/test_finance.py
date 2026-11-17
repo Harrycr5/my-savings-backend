@@ -53,6 +53,35 @@ async def till_setup(client, headers, currency="PEN"):
     return till, income, expense
 
 
+async def test_all_till_movements_are_paginated_and_scoped_to_user(client, admin_headers):
+    headers = await normal_headers(client)
+    till, income, _ = await till_setup(client, headers)
+    other, _, expense = await till_setup(client, headers, "USD")
+    foreign, foreign_income, _ = await till_setup(client, admin_headers)
+
+    for owner, box, concept, day in (
+        (headers, till, income, "2026-01-10"),
+        (headers, other, expense, "2026-01-11"),
+        (admin_headers, foreign, foreign_income, "2026-01-12"),
+    ):
+        await create(
+            client,
+            owner,
+            f"/tills/{box['id']}/movements",
+            {"concept_id": concept["id"], "amount": "10", "occurred_on": day},
+        )
+
+    page = await read(client, headers, "/tills/movements?page_size=1")
+    assert page["total"] == 2
+    assert page["pages"] == 2
+    assert [item["till_id"] for item in page["items"]] == [other["id"]]
+    second = await read(client, headers, "/tills/movements?page_size=1&page=2")
+    assert [item["till_id"] for item in second["items"]] == [till["id"]]
+    filtered = await read(client, headers, "/tills/movements?direction=income")
+    assert filtered["total"] == 1
+    assert [item["till_id"] for item in filtered["items"]] == [till["id"]]
+
+
 async def test_till_movements_balances_filters_and_permanence(client):
     headers = await normal_headers(client)
     till, income, expense = await till_setup(client, headers)

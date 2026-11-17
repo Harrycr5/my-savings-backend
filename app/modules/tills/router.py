@@ -40,6 +40,15 @@ async def till_summary(user: CurrentUser, session: DbSession):
     return ApiResponse(data=await TillRepository(session).summary(user.id))
 
 
+@router.get("/movements", response_model=ApiResponse[Page[MovementRead]])
+async def list_all_movements(
+    user: CurrentUser,
+    session: DbSession,
+    filters: Annotated[MovementFilters, Query()],
+):
+    return ApiResponse(data=await TillRepository(session).all_movements(user.id, filters))
+
+
 @router.get("/{till_id}", response_model=ApiResponse[TillRead])
 async def get_till(till_id: UUID, user: CurrentUser, session: DbSession):
     return ApiResponse(data=await TillRepository(session).get(till_id, user.id))

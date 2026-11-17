@@ -21,13 +21,13 @@ class User(UUIDMixin, TimestampMixin, Base):
         unique=True,
         nullable=False,
     )
-    
+
     doc_number: Mapped[str | None] = mapped_column(
         String(8),
         unique=True,
         nullable=True,
     )
-    
+
     avatar_url: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,

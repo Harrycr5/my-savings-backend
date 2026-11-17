@@ -86,7 +86,19 @@ class TillRepository(OwnedRepository[Till]):
         return Page.build([ConceptRead.model_validate(item) for item in records], total, params)
 
     async def movements(self, till_id: UUID, filters: MovementFilters):
-        conditions = [TillMovement.till_id == till_id]
+        query = select(TillMovement).where(TillMovement.till_id == till_id)
+        return await self._movement_page(query, filters)
+
+    async def all_movements(self, user_id: UUID, filters: MovementFilters):
+        query = (
+            select(TillMovement)
+            .join(Till, Till.id == TillMovement.till_id)
+            .where(Till.user_id == user_id)
+        )
+        return await self._movement_page(query, filters)
+
+    async def _movement_page(self, query, filters: MovementFilters):
+        conditions = []
         for field in ("direction", "concept_id"):
             if (value := getattr(filters, field)) is not None:
                 conditions.append(getattr(TillMovement, field) == value)
@@ -94,16 +106,10 @@ class TillRepository(OwnedRepository[Till]):
             conditions.append(TillMovement.occurred_on >= filters.date_from)
         if filters.date_to:
             conditions.append(TillMovement.occurred_on <= filters.date_to)
-        total = (
-            await self.session.scalar(
-                select(func.count()).select_from(TillMovement).where(*conditions)
-            )
-            or 0
-        )
+        query = query.where(*conditions)
+        total = await self.session.scalar(select(func.count()).select_from(query.subquery())) or 0
         records = await self.session.scalars(
-            select(TillMovement)
-            .where(*conditions)
-            .order_by(
+            query.order_by(
                 TillMovement.occurred_on.desc(), TillMovement.created_at.desc(), TillMovement.id
             )
             .offset(filters.offset)

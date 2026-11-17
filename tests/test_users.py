@@ -20,22 +20,23 @@ async def test_update_document_and_avatar(client, admin_headers):
         "/api/v1/users/me", headers=admin_headers, json={"doc_number": "01234567"}
     )
     assert duplicate.status_code == 409, duplicate.text
-    response = await client.patch(
-        "/api/v1/users/me", headers=headers, json={"avatar_url": None}
-    )
+    response = await client.patch("/api/v1/users/me", headers=headers, json={"avatar_url": None})
     assert response.status_code == 200, response.text
     assert response.json()["data"]["avatar_url"] is None
     assert response.json()["data"]["doc_number"] == "01234567"
 
 
-@pytest.mark.parametrize("payload", [
-    {"doc_number": "1234567"},
-    {"doc_number": "123456789"},
-    {"doc_number": "abcdefgh"},
-    {"doc_number": None},
-    {"avatar_url": "javascript:alert(1)"},
-    {"avatar_url": "https://example.com/" + "a" * 255},
-])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"doc_number": "1234567"},
+        {"doc_number": "123456789"},
+        {"doc_number": "abcdefgh"},
+        {"doc_number": None},
+        {"avatar_url": "javascript:alert(1)"},
+        {"avatar_url": "https://example.com/" + "a" * 255},
+    ],
+)
 async def test_invalid_profile_changes(client, payload):
     tokens = await user_tokens(client)
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
