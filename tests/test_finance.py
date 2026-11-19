@@ -240,7 +240,7 @@ async def test_debt_currency_and_one_time_completion(client):
     assert response.status_code == 409
 
 
-async def test_payment_failure_rolls_back_movement_and_schedule(client, db):
+async def test_payment_failure_rolls_back_movement_payment_and_schedule(client, session_factory):
     headers = await normal_headers(client)
     till, _, expense = await till_setup(client, headers)
     debt = await create(
@@ -250,14 +250,22 @@ async def test_payment_failure_rolls_back_movement_and_schedule(client, db):
         {
             "name": "Alquiler",
             "amount": "25",
+            "frequency": "once",
             "first_due_date": "2026-01-31",
         },
     )
 
-    def fail_payment(mapper, connection, target):
-        raise RuntimeError("Simulated failure after movement creation")
+    inserted_rows = []
 
-    event.listen(DebtPayment, "before_insert", fail_payment)
+    def fail_after_payment_insert(mapper, connection, payment):
+        movement_id = connection.scalar(
+            select(TillMovement.id).where(TillMovement.id == payment.movement_id)
+        )
+        payment_id = connection.scalar(select(DebtPayment.id).where(DebtPayment.id == payment.id))
+        inserted_rows.append((movement_id is not None, payment_id is not None))
+        raise RuntimeError("Simulated failure after payment insert")
+
+    event.listen(DebtPayment, "after_insert", fail_after_payment_insert)
     try:
         response = await client.post(
             f"{PREFIX}/debts/{debt['id']}/payments",
@@ -270,10 +278,17 @@ async def test_payment_failure_rolls_back_movement_and_schedule(client, db):
         )
         assert response.status_code == 500
     finally:
-        event.remove(DebtPayment, "before_insert", fail_payment)
-    assert await db.scalar(select(func.count()).select_from(TillMovement)) == 0
-    assert await db.scalar(select(func.count()).select_from(DebtPayment)) == 0
-    assert (await read(client, headers, f"/debts/{debt['id']}"))["next_due_date"] == "2026-01-31"
+        event.remove(DebtPayment, "after_insert", fail_after_payment_insert)
+
+    assert inserted_rows == [(True, True)]
+    async with session_factory() as verification_session:
+        assert (
+            await verification_session.scalar(select(func.count()).select_from(TillMovement)) == 0
+        )
+        assert await verification_session.scalar(select(func.count()).select_from(DebtPayment)) == 0
+    pending = await read(client, headers, f"/debts/{debt['id']}")
+    assert pending["next_due_date"] == "2026-01-31"
+    assert pending["is_active"] is True
 
 
 async def test_assets_crud_types_and_summary(client):
