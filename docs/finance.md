@@ -9,7 +9,20 @@ Los importes se reciben como números o cadenas decimales, con un máximo de 18
 dígitos y 2 decimales. Las respuestas los representan como cadenas para conservar
 su precisión. La moneda es un código de tres letras mayúsculas, por defecto `PEN`.
 Los resúmenes separan las monedas; no convierten ni suman soles con dólares.
-Todas las listas admiten `page` y `page_size` (máximo 100).
+Las listas de registros del usuario admiten `page` y `page_size` (máximo 100).
+
+## Monedas (`currencies`)
+
+`GET /currencies` devuelve los códigos disponibles y sus nombres en español.
+El catálogo incluye monedas de Latinoamérica y el Caribe, el dólar
+estadounidense (`USD`) y el euro (`EUR`).
+[Referencia ISO 4217](https://www.iso.org/es/home/standards/popular-standards/iso-4217--currency-codes.html).
+
+Envía el código en el campo `currency` de cajas, deudas, patrimonio,
+empleados y presupuestos. Un código fuera del catálogo seleccionable devuelve
+`422`. Los pagos de deudas heredan la moneda de la deuda y los movimientos
+usan la moneda de su caja. Las monedas que ya estaban guardadas se conservan
+en sus registros, incluso si quedan fuera del catálogo seleccionable.
 
 ## Cajas (`tills`)
 
@@ -154,6 +167,43 @@ Se pueden actualizar nombre, descripción, tipo, detalle del tipo y ambos valore
 La moneda del bien queda fija. Registrar o actualizar bienes no crea movimientos
 en las cajas. El resumen muestra patrimonio bruto declarado, sin restar deudas.
 
+## Empleados (`employees`)
+
+| Método | Ruta | Uso |
+| --- | --- | --- |
+| POST / GET | `/employees` | Registrar / listar empleados propios |
+| GET / PATCH / DELETE | `/employees/{id}` | Consultar / editar / eliminar empleado |
+
+```json
+{
+  "full_name": "María Pérez",
+  "salary": "1500.00",
+  "currency": "PEN",
+  "first_pay_date": "2026-11-30"
+}
+```
+
+`salary` es el sueldo mensual y debe ser positivo. `first_pay_date` guarda la fecha
+de referencia del primer cobro en formato `YYYY-MM-DD`.
+
+## Presupuesto mensual (`budgets`)
+
+`POST /budgets` crea el presupuesto del año y mes indicados. Cada usuario puede
+crear un presupuesto por mes. Una segunda solicitud para el mismo período
+devuelve `409`. Las cuatro categorías admiten cero.
+
+```json
+{
+  "year": 2026,
+  "month": 11,
+  "currency": "PEN",
+  "leisure": "250.00",
+  "fixed_expenses": "1800.00",
+  "food": "600.00",
+  "subscriptions": "79.90"
+}
+```
+
 ## Base de datos
 
 Aplicar las migraciones antes de iniciar la API:
@@ -164,10 +214,13 @@ alembic upgrade head
 
 La revisión `a7d92c5e1048` crea `tills`, `till_concepts`, `till_movements`, `debts`,
 `debt_payments` e `inheritance_assets`, después de la migración de documento y avatar.
+La revisión `c41a2098fd6e` crea `employees` y `monthly_budgets`.
+La revisión `e530f8ca2d17` carga el catálogo `currencies` y vincula los campos
+de moneda de las tablas financieras.
 Las rutas también están documentadas en `/docs`.
 
-Los seis modelos financieros heredan de `Base` los permisos `read`, `create`,
-`update` y `delete`. `alembic upgrade head` sincroniza esos 24 permisos en el
+Los modelos financieros heredan de `Base` los permisos `read`, `create`,
+`update` y `delete`. `alembic upgrade head` sincroniza esos permisos en el
 catálogo, incluso si todas las migraciones ya estaban aplicadas. No hace falta
 generar otra revisión. La sincronización conserva permisos y asignaciones existentes.
 El catálogo no agrega endpoints: las cajas siguen sin cierre ni eliminación.

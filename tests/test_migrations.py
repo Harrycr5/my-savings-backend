@@ -1,5 +1,6 @@
 from importlib import import_module
 from io import StringIO
+from uuid import uuid4
 
 import sqlalchemy as sa
 from alembic import command
@@ -17,8 +18,10 @@ def test_migration_chain_and_postgresql_sql():
     output = StringIO()
     config = Config("alembic.ini", output_buffer=output)
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "6d3ce54ce4a8"
+    assert scripts.get_current_head() == "e530f8ca2d17"
     assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "e530f8ca2d17",
+        "c41a2098fd6e",
         "6d3ce54ce4a8",
         "c6e7d9b812f0",
         "a7d92c5e1048",
@@ -45,11 +48,16 @@ def test_migration_chain_and_postgresql_sql():
         "debts",
         "debt_payments",
         "inheritance_assets",
+        "employees",
+        "monthly_budgets",
+        "currencies",
     ):
         assert f"CREATE TABLE {table}" in sql
     assert "UNIQUE (debt_id, due_date)" in sql
     assert "CONSTRAINT pk_till_movement_requests PRIMARY KEY (user_id, key)" in sql
     assert "FOREIGN KEY(concept_id, till_id, direction)" in sql
+    assert sql.count("FOREIGN KEY(currency) REFERENCES currencies (code)") == 6
+    assert "INSERT INTO currencies (code, name, is_selectable)" in sql
     assert "INSERT INTO profile_permissions" in sql
     assert "profiles.code = 'user'" in sql
 
@@ -94,6 +102,10 @@ def test_finance_migration_matches_models_and_reverses():
     load_models()
     migration = import_module("migrations.versions.a7d92c5e1048_create_personal_finance_modules")
     idempotency = import_module("migrations.versions.6d3ce54ce4a8_add_till_movement_idempotency")
+    planning = import_module(
+        "migrations.versions.c41a2098fd6e_create_employees_and_monthly_budgets"
+    )
+    catalog = import_module("migrations.versions.e530f8ca2d17_create_currency_catalog")
     tables = {
         "tills",
         "till_concepts",
@@ -102,6 +114,9 @@ def test_finance_migration_matches_models_and_reverses():
         "debts",
         "debt_payments",
         "inheritance_assets",
+        "employees",
+        "monthly_budgets",
+        "currencies",
     }
     engine = sa.create_engine("sqlite:///:memory:")
     try:
@@ -120,8 +135,34 @@ def test_finance_migration_matches_models_and_reverses():
             with Operations.context(context):
                 migration.upgrade()
                 idempotency.upgrade()
+                planning.upgrade()
+                Till = Base.metadata.tables["tills"]
+                till_id = uuid4()
+                connection.execute(
+                    Till.insert().values(
+                        id=till_id,
+                        user_id=uuid4(),
+                        name="Caja anterior",
+                        currency="JPY",
+                        opening_balance=0,
+                    )
+                )
+                catalog.upgrade()
                 assert set(sa.inspect(connection).get_table_names()) == tables | {"users"}
                 assert compare_metadata(context, Base.metadata) == []
+                currencies = Base.metadata.tables["currencies"]
+                assert (
+                    connection.scalar(
+                        sa.select(currencies.c.is_selectable).where(currencies.c.code == "JPY")
+                    )
+                    is False
+                )
+                assert (
+                    connection.scalar(sa.select(Till.c.currency).where(Till.c.id == till_id))
+                    == "JPY"
+                )
+                catalog.downgrade()
+                planning.downgrade()
                 idempotency.downgrade()
                 migration.downgrade()
                 assert sa.inspect(connection).get_table_names() == ["users"]

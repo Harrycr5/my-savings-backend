@@ -26,6 +26,6 @@ class Asset(UUIDMixin, TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(String(500))
     asset_type: Mapped[str] = mapped_column(String(8))
     other_type: Mapped[str | None] = mapped_column(String(100))
-    currency: Mapped[str] = mapped_column(String(3))
+    currency: Mapped[str] = mapped_column(ForeignKey("currencies.code", ondelete="RESTRICT"))
     current_value: Mapped[Decimal] = mapped_column(Numeric(18, 2))
     market_value: Mapped[Decimal] = mapped_column(Numeric(18, 2))

@@ -35,6 +35,95 @@ async def read(client, headers, path):
     return response.json()["data"]
 
 
+async def test_currency_catalog_is_used_by_financial_endpoints(client):
+    headers = await normal_headers(client)
+    catalog = await read(client, headers, "/currencies")
+    codes = {currency["code"] for currency in catalog}
+    assert {"PEN", "USD", "EUR", "MXN", "BRL", "XCG"} <= codes
+    assert "JPY" not in codes
+    endpoints = {
+        "/tills": {"name": "Caja"},
+        "/debts": {"name": "Alquiler", "amount": "100", "first_due_date": "2026-11-30"},
+        "/inheritance": {
+            "name": "Casa",
+            "asset_type": "property",
+            "current_value": "100",
+            "market_value": "200",
+        },
+        "/employees": {"full_name": "María Pérez", "salary": "100", "first_pay_date": "2026-11-30"},
+        "/budgets": {
+            "year": 2026,
+            "month": 11,
+            "leisure": "0",
+            "fixed_expenses": "0",
+            "food": "0",
+            "subscriptions": "0",
+        },
+    }
+    for path, payload in endpoints.items():
+        response = await client.post(
+            f"{PREFIX}{path}", headers=headers, json={**payload, "currency": "JPY"}
+        )
+        assert response.status_code == 422, response.text
+        assert "JPY" in response.json()["message"]
+        record = await create(client, headers, path, {**payload, "currency": "EUR"})
+        assert record["currency"] == "EUR"
+        if path == "/employees":
+            employee_path = f"{PREFIX}{path}/{record['id']}"
+            response = await client.patch(employee_path, headers=headers, json={"currency": "JPY"})
+            assert response.status_code == 422
+            response = await client.patch(employee_path, headers=headers, json={"currency": "MXN"})
+            assert response.status_code == 200, response.text
+            assert response.json()["data"]["currency"] == "MXN"
+
+
+async def test_employees_are_private_and_editable(client, admin_headers):
+    headers = await normal_headers(client)
+    payload = {"full_name": "María Pérez", "salary": "1500.00", "first_pay_date": "2026-11-30"}
+    assert (await client.post(f"{PREFIX}/employees", json=payload)).status_code == 401
+    response = await client.post(
+        f"{PREFIX}/employees", headers=headers, json={**payload, "salary": "0"}
+    )
+    assert response.status_code == 422
+
+    employee = await create(client, headers, "/employees", payload)
+    path = f"{PREFIX}/employees/{employee['id']}"
+    assert (await client.get(path, headers=admin_headers)).status_code == 404
+    assert (await client.delete(path, headers=admin_headers)).status_code == 404
+    listing = await read(client, headers, "/employees")
+    assert listing["items"] == [employee]
+    response = await client.patch(path, headers=headers, json={"salary": "1600.00"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["salary"] == "1600.00"
+    assert (await client.delete(path, headers=headers)).status_code == 204
+    assert (await client.get(path, headers=headers)).status_code == 404
+
+
+async def test_monthly_budget_is_unique_per_user_and_period(client, admin_headers):
+    headers = await normal_headers(client)
+    payload = {
+        "year": 2026,
+        "month": 11,
+        "leisure": "250.00",
+        "fixed_expenses": "1800.00",
+        "food": "600.00",
+        "subscriptions": "0.00",
+    }
+    for changes in ({"month": 13}, {"food": "-1.00"}):
+        response = await client.post(
+            f"{PREFIX}/budgets", headers=headers, json={**payload, **changes}
+        )
+        assert response.status_code == 422
+
+    budget = await create(client, headers, "/budgets", payload)
+    assert budget["subscriptions"] == "0.00"
+    assert budget["currency"] == "PEN"
+    response = await client.post(f"{PREFIX}/budgets", headers=headers, json=payload)
+    assert response.status_code == 409
+    await create(client, admin_headers, "/budgets", payload)
+    await create(client, headers, "/budgets", {**payload, "month": 12})
+
+
 async def till_setup(client, headers, currency="PEN"):
     till = await create(
         client,

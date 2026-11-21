@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppError
+from app.modules.currencies.service import require_selectable_currency
 from app.modules.inheritance.models import Asset
 from app.modules.inheritance.repository import AssetRepository
 from app.modules.inheritance.schemas import AssetCreate, AssetUpdate
@@ -15,6 +16,7 @@ class AssetService:
         self.repository = AssetRepository(session)
 
     async def create(self, user_id: UUID, data: AssetCreate):
+        await require_selectable_currency(self.session, data.currency)
         asset = await self.repository.save(Asset(user_id=user_id, **data.model_dump()))
         await self.session.commit()
         return asset

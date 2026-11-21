@@ -18,7 +18,7 @@ async def test_permission_catalog_is_idempotent_and_excludes_sessions(db):
     await connection.run_sync(sync_model_permissions)
     await db.commit()
     after = await db.scalar(select(func.count()).select_from(Permission))
-    assert before == after == 33
+    assert before == after == 41
     codes = list((await db.scalars(select(Permission.code))).all())
     assert not any(code.startswith("auth_sessions.") for code in codes)
     for resource in (
@@ -28,6 +28,8 @@ async def test_permission_catalog_is_idempotent_and_excludes_sessions(db):
         "debts",
         "debt_payments",
         "inheritance_assets",
+        "employees",
+        "monthly_budgets",
     ):
         assert {f"{resource}.{action}" for action in ("read", "create", "update", "delete")} <= set(
             codes

@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppError, ConflictError
+from app.modules.currencies.service import require_selectable_currency
 from app.modules.debts.models import Debt, DebtPayment
 from app.modules.debts.repository import DebtRepository
 from app.modules.debts.schemas import DebtCreate, DebtPay, DebtUpdate
@@ -35,6 +36,7 @@ class DebtService:
         self.repository = DebtRepository(session)
 
     async def create(self, user_id: UUID, data: DebtCreate):
+        await require_selectable_currency(self.session, data.currency)
         debt = Debt(user_id=user_id, next_due_date=data.first_due_date, **data.model_dump())
         await self.repository.save(debt)
         await self.session.commit()

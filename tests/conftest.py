@@ -1,5 +1,6 @@
 import os
 from datetime import timezone
+from importlib import import_module
 from uuid import uuid4
 
 import pytest
@@ -24,6 +25,7 @@ from app.db.base import Base  # noqa: E402
 from app.db.models import load_models  # noqa: E402
 from app.main import app, fastapi_app  # noqa: E402
 from app.modules.auth.models import AuthSession, PasswordResetCode  # noqa: E402
+from app.modules.currencies.models import Currency  # noqa: E402
 from app.modules.profiles.models import Profile  # noqa: E402
 from app.modules.users.models import User  # noqa: E402
 
@@ -66,6 +68,14 @@ async def session_factory():
     try:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+            catalog = import_module("migrations.versions.e530f8ca2d17_create_currency_catalog")
+            await connection.execute(
+                Currency.__table__.insert(),
+                [
+                    {"code": code, "name": name, "is_selectable": True}
+                    for code, name in catalog.CURRENCY_NAMES.items()
+                ],
+            )
             await connection.run_sync(sync_model_permissions)
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:

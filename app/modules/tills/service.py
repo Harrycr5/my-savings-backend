@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError
+from app.modules.currencies.service import require_selectable_currency
 from app.modules.tills.models import Till, TillConcept, TillMovement, TillMovementRequest
 from app.modules.tills.repository import TillRepository
 from app.modules.tills.schemas import ConceptCreate, MovementCreate, TillCreate, TillUpdate
@@ -17,6 +18,7 @@ class TillService:
         self.repository = TillRepository(session)
 
     async def create(self, user_id: UUID, data: TillCreate) -> Till:
+        await require_selectable_currency(self.session, data.currency)
         till = await self.repository.save(Till(user_id=user_id, **data.model_dump()))
         await self.session.commit()
         return till
