@@ -1,3 +1,5 @@
+import asyncio
+import os
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -8,6 +10,7 @@ from sqlalchemy import event, func, select
 from app.modules.debts.models import Debt, DebtPayment
 from app.modules.debts.service import next_due_date
 from app.modules.tills.models import TillMovement
+from app.modules.tills.repository import TillRepository
 
 PREFIX = "/api/v1"
 
@@ -80,6 +83,65 @@ async def test_all_till_movements_are_paginated_and_scoped_to_user(client, admin
     filtered = await read(client, headers, "/tills/movements?direction=income")
     assert filtered["total"] == 1
     assert [item["till_id"] for item in filtered["items"]] == [till["id"]]
+
+
+async def test_till_movement_idempotency(client):
+    headers = await normal_headers(client)
+    till, income, _ = await till_setup(client, headers)
+    path = f"/tills/{till['id']}/movements"
+    payload = {"concept_id": income["id"], "amount": "10.00"}
+    key_headers = {**headers, "Idempotency-Key": str(uuid4())}
+
+    first = await create(client, key_headers, path, payload)
+    replay = await create(client, key_headers, path, {**payload, "amount": "10"})
+    assert replay == first
+    conflict = await client.post(
+        f"{PREFIX}{path}", headers=key_headers, json={**payload, "amount": "11"}
+    )
+    assert conflict.status_code == 409
+    assert (await read(client, headers, path))["total"] == 1
+
+    second = await create(client, {**headers, "Idempotency-Key": str(uuid4())}, path, payload)
+    assert second["id"] != first["id"]
+    assert (await read(client, headers, path))["total"] == 2
+
+    other, _, _ = await till_setup(client, headers)
+    conflict = await client.post(
+        f"{PREFIX}/tills/{other['id']}/movements", headers=key_headers, json=payload
+    )
+    assert conflict.status_code == 409
+
+    retry_headers = {**headers, "Idempotency-Key": str(uuid4())}
+    failed = await client.post(
+        f"{PREFIX}{path}", headers=retry_headers, json={**payload, "concept_id": str(uuid4())}
+    )
+    assert failed.status_code == 404
+    await create(client, retry_headers, path, payload)
+    assert (await read(client, headers, path))["total"] == 3
+
+
+@pytest.mark.skipif(not os.environ.get("TEST_DATABASE_URL"), reason="Requiere PostgreSQL.")
+async def test_concurrent_till_movement_requests_create_one_movement(client, monkeypatch):
+    headers = await normal_headers(client)
+    till, income, _ = await till_setup(client, headers)
+    path = f"/tills/{till['id']}/movements"
+    headers["Idempotency-Key"] = str(uuid4())
+    payload = {"concept_id": income["id"], "amount": "10.00"}
+    barrier = asyncio.Barrier(2)
+    reserve = TillRepository.reserve_movement_request
+
+    async def reserve_together(repository, user_id, key, fingerprint):
+        await barrier.wait()
+        return await reserve(repository, user_id, key, fingerprint)
+
+    monkeypatch.setattr(TillRepository, "reserve_movement_request", reserve_together)
+    first, second = await asyncio.wait_for(
+        asyncio.gather(*(create(client, headers, path, payload) for _ in range(2))), timeout=10
+    )
+    assert first == second
+    assert (await read(client, headers, path))["total"] == 1
+    balance = await read(client, headers, f"/tills/{till['id']}/balance")
+    assert Decimal(balance["balance"]) == Decimal("110")
 
 
 async def test_till_movements_balances_filters_and_permanence(client):

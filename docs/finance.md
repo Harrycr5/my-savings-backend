@@ -26,6 +26,15 @@ fijos al crearla. Se puede cambiar su nombre y descripción.
 | POST / GET | `/tills/{id}/concepts` | Crear / listar conceptos de la caja |
 | POST / GET | `/tills/{id}/movements` | Registrar / listar movimientos |
 
+Al registrar un movimiento, genera una clave por operación (por ejemplo, un UUID)
+y envíala en la cabecera opcional `Idempotency-Key`. Si pierdes la respuesta,
+reenvía la misma solicitud con la misma clave. La API devuelve `201` con el
+movimiento original y lo contabiliza una sola vez. Reutilizar la clave con
+otros datos o en otra caja propia devuelve `409`. Usa una clave nueva para cada
+movimiento intencional, aunque los datos coincidan. Las solicitudes sin clave
+se procesan como operaciones independientes. La clave admite de 1 a 128
+caracteres ASCII visibles.
+
 Crear una caja:
 
 ```json

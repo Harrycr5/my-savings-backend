@@ -17,8 +17,9 @@ def test_migration_chain_and_postgresql_sql():
     output = StringIO()
     config = Config("alembic.ini", output_buffer=output)
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_current_head() == "c6e7d9b812f0"
+    assert scripts.get_current_head() == "6d3ce54ce4a8"
     assert [revision.revision for revision in scripts.walk_revisions()] == [
+        "6d3ce54ce4a8",
         "c6e7d9b812f0",
         "a7d92c5e1048",
         "f4c839a2b671",
@@ -40,12 +41,14 @@ def test_migration_chain_and_postgresql_sql():
         "tills",
         "till_concepts",
         "till_movements",
+        "till_movement_requests",
         "debts",
         "debt_payments",
         "inheritance_assets",
     ):
         assert f"CREATE TABLE {table}" in sql
     assert "UNIQUE (debt_id, due_date)" in sql
+    assert "CONSTRAINT pk_till_movement_requests PRIMARY KEY (user_id, key)" in sql
     assert "FOREIGN KEY(concept_id, till_id, direction)" in sql
     assert "INSERT INTO profile_permissions" in sql
     assert "profiles.code = 'user'" in sql
@@ -90,10 +93,12 @@ def test_basic_profile_grants_only_personal_permissions():
 def test_finance_migration_matches_models_and_reverses():
     load_models()
     migration = import_module("migrations.versions.a7d92c5e1048_create_personal_finance_modules")
+    idempotency = import_module("migrations.versions.6d3ce54ce4a8_add_till_movement_idempotency")
     tables = {
         "tills",
         "till_concepts",
         "till_movements",
+        "till_movement_requests",
         "debts",
         "debt_payments",
         "inheritance_assets",
@@ -114,8 +119,10 @@ def test_finance_migration_matches_models_and_reverses():
             )
             with Operations.context(context):
                 migration.upgrade()
+                idempotency.upgrade()
                 assert set(sa.inspect(connection).get_table_names()) == tables | {"users"}
                 assert compare_metadata(context, Base.metadata) == []
+                idempotency.downgrade()
                 migration.downgrade()
                 assert sa.inspect(connection).get_table_names() == ["users"]
     finally:

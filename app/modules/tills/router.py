@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Header, Query
 
 from app.api.dependencies import DbSession
 from app.core.pagination import Page, Pagination
@@ -78,11 +78,25 @@ async def list_concepts(till_id: UUID, user: CurrentUser, session: DbSession, pa
     return ApiResponse(data=await repository.concepts(till_id, params))
 
 
-@router.post("/{till_id}/movements", response_model=ApiResponse[MovementRead], status_code=201)
+@router.post(
+    "/{till_id}/movements",
+    response_model=ApiResponse[MovementRead],
+    status_code=201,
+    responses={409: {"description": "Clave de idempotencia usada con otros datos"}},
+)
 async def create_movement(
-    till_id: UUID, data: MovementCreate, user: CurrentUser, session: DbSession
+    till_id: UUID,
+    data: MovementCreate,
+    user: CurrentUser,
+    session: DbSession,
+    idempotency_key: Annotated[
+        str | None, Header(alias="Idempotency-Key", pattern=r"^[!-~]{1,128}$")
+    ] = None,
 ):
-    return ApiResponse(data=await TillService(session).create_movement(user.id, till_id, data))
+    movement = await TillService(session).create_movement(
+        user.id, till_id, data, idempotency_key=idempotency_key
+    )
+    return ApiResponse(data=movement)
 
 
 @router.get("/{till_id}/movements", response_model=ApiResponse[Page[MovementRead]])

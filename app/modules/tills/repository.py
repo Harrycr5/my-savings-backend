@@ -2,12 +2,14 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import case, func, select
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.finance import OwnedRepository
 from app.core.pagination import Page, PaginationParams
-from app.modules.tills.models import Till, TillConcept, TillMovement
+from app.modules.tills.models import Till, TillConcept, TillMovement, TillMovementRequest
 from app.modules.tills.schemas import (
     ConceptRead,
     MovementFilters,
@@ -88,6 +90,19 @@ class TillRepository(OwnedRepository[Till]):
     async def movements(self, till_id: UUID, filters: MovementFilters):
         query = select(TillMovement).where(TillMovement.till_id == till_id)
         return await self._movement_page(query, filters)
+
+    async def reserve_movement_request(
+        self, user_id: UUID, key: str, fingerprint: str
+    ) -> TillMovementRequest | None:
+        insert = (
+            sqlite_insert if self.session.get_bind().dialect.name == "sqlite" else postgres_insert
+        )
+        return await self.session.scalar(
+            insert(TillMovementRequest)
+            .values(user_id=user_id, key=key, request_fingerprint=fingerprint, status="processing")
+            .on_conflict_do_nothing(index_elements=["user_id", "key"])
+            .returning(TillMovementRequest)
+        )
 
     async def all_movements(self, user_id: UUID, filters: MovementFilters):
         query = (
